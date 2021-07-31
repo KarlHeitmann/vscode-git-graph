@@ -344,12 +344,13 @@ export class DataSource extends Disposable {
 	 * @param hasParents Does the commit have parents
 	 * @returns The commit details.
 	 */
-	public getCommitDetails(repo: string, commitHash: string, hasParents: boolean): Promise<GitCommitDetailsData> {
+	public getCommitDetails(repo: string, commitHash: string, hasParents: boolean): Promise<GitCommitDetailsData> { // KARL_TRAIL
 		const fromCommit = commitHash + (hasParents ? '^' : '');
 		return Promise.all([
 			this.getCommitDetailsBase(repo, commitHash),
 			this.getDiffNameStatus(repo, fromCommit, commitHash),
-			this.getDiffNumStat(repo, fromCommit, commitHash)
+			this.getDiffNumStat(repo, fromCommit, commitHash),
+			this.getDiffMode(repo, fromCommit, commitHash),
 		]).then((results) => {
 			results[0].fileChanges = generateFileChanges(results[1], results[2], null);
 			return { commitDetails: results[0], error: null };
@@ -1458,6 +1459,36 @@ export class DataSource extends Disposable {
 	}
 
 	/**
+	 * Get the diff `--summary` records.
+	 * @param repo The path of the repository.
+	 * @param fromHash The revision the diff is from.
+	 * @param toHash The revision the diff is to.
+	 * @param filter The types of file changes to retrieve (defaults to `AMDR`).
+	 * @returns An array of `--numstat` records.
+	 */
+	private getDiffMode(repo: string, fromHash: string, toHash: string, filter: string = 'AMDR') {
+		this.logger.logCmd("<<<<<<getDiffNumStat", ["--summary"]);
+		return this.execDiff(repo, fromHash, toHash, '--summary', filter).then((output) => {
+			let records: DiffNumStatRecord[] = [], i = 0;
+			while (i < output.length && output[i] !== '') {
+				let fields = output[i].split(' => ');
+				// Aqui se toman algunas cosas del diff
+				if (fields.length !== 3) break;
+				if (fields[2] !== '') {
+					// Add, Modify, or Delete
+					records.push({ filePath: getPathFromStr(fields[2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
+					i += 1;
+				} else {
+					// Rename
+					records.push({ filePath: getPathFromStr(output[i + 2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
+					i += 3;
+				}
+			}
+			return records;
+		});
+	}
+
+	/**
 	 * Get the diff `--numstat` records.
 	 * @param repo The path of the repository.
 	 * @param fromHash The revision the diff is from.
@@ -1776,7 +1807,7 @@ export class DataSource extends Disposable {
 	 * @param filter The types of file changes to retrieve.
 	 * @returns The diff output.
 	 */
-	private execDiff(repo: string, fromHash: string, toHash: string, arg: '--numstat' | '--name-status', filter: string) {
+	private execDiff(repo: string, fromHash: string, toHash: string, arg: '--numstat' | '--name-status' | '--summary', filter: string) {
 		let args: string[];
 		if (fromHash === toHash) {
 			args = ['diff-tree', arg, '-r', '--root', '--find-renames', '--diff-filter=' + filter, '-z', fromHash];
@@ -1786,7 +1817,12 @@ export class DataSource extends Disposable {
 		}
 
 		return this.spawnGit(args, repo, (stdout) => {
-			let lines = stdout.split('\0');
+			let lines;
+			if (arg === '--summary') {
+				lines = stdout.split('\n');
+			} else {
+				lines = stdout.split('\0');
+			}
 			if (fromHash === toHash) lines.shift();
 			return lines;
 		});
@@ -1944,6 +1980,12 @@ interface DiffNameStatusRecord {
 	type: GitFileStatus;
 	oldFilePath: string;
 	newFilePath: string;
+}
+
+interface DiffModeRecord {
+	filePath: string;
+	additions: number;
+	deletions: number;
 }
 
 interface DiffNumStatRecord {
