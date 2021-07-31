@@ -352,7 +352,7 @@ export class DataSource extends Disposable {
 			this.getDiffNumStat(repo, fromCommit, commitHash),
 			this.getDiffMode(repo, fromCommit, commitHash)
 		]).then((results) => {
-			results[0].fileChanges = generateFileChanges(results[1], results[2], null); // KARL_TRAIL
+			results[0].fileChanges = generateFileChanges(results[1], results[2], results[3], null); // KARL_TRAIL
 			return { commitDetails: results[0], error: null };
 		}).catch((errorMessage) => {
 			return { commitDetails: null, error: errorMessage };
@@ -371,12 +371,13 @@ export class DataSource extends Disposable {
 			this.getCommitDetailsBase(repo, commitHash),
 			this.getDiffNameStatus(repo, stash.baseHash, commitHash),
 			this.getDiffNumStat(repo, stash.baseHash, commitHash),
+			this.getDiffMode(repo, stash.baseHash, commitHash),
 			stash.untrackedFilesHash !== null ? this.getDiffNameStatus(repo, stash.untrackedFilesHash, stash.untrackedFilesHash) : Promise.resolve([]),
 			stash.untrackedFilesHash !== null ? this.getDiffNumStat(repo, stash.untrackedFilesHash, stash.untrackedFilesHash) : Promise.resolve([])
 		]).then((results) => {
-			results[0].fileChanges = generateFileChanges(results[1], results[2], null);
+			results[0].fileChanges = generateFileChanges(results[1], results[2], results[3], null); // KARL_TRAIL PENDING
 			if (stash.untrackedFilesHash !== null) {
-				generateFileChanges(results[3], results[4], null).forEach((fileChange) => {
+				generateFileChanges(results[4], results[5], results[3], null).forEach((fileChange) => { // KARL_TRAIL PENDING
 					if (fileChange.type === GitFileStatus.Added) {
 						fileChange.type = GitFileStatus.Untracked;
 						results[0].fileChanges.push(fileChange);
@@ -398,6 +399,7 @@ export class DataSource extends Disposable {
 		return Promise.all([
 			this.getDiffNameStatus(repo, 'HEAD', ''),
 			this.getDiffNumStat(repo, 'HEAD', ''),
+			this.getDiffMode(repo, 'HEAD', ''),
 			this.getStatus(repo)
 		]).then((results) => {
 			return {
@@ -405,7 +407,7 @@ export class DataSource extends Disposable {
 					hash: UNCOMMITTED, parents: [],
 					author: '', authorEmail: '', authorDate: 0,
 					committer: '', committerEmail: '', committerDate: 0, signature: null,
-					body: '', fileChanges: generateFileChanges(results[0], results[1], results[2])
+					body: '', fileChanges: generateFileChanges(results[0], results[1], results[2], results[3]) // KARL_TRAIL PENDING
 				},
 				error: null
 			};
@@ -422,13 +424,14 @@ export class DataSource extends Disposable {
 	 * @returns The comparison details.
 	 */
 	public getCommitComparison(repo: string, fromHash: string, toHash: string): Promise<GitCommitComparisonData> {
-		return Promise.all<DiffNameStatusRecord[], DiffNumStatRecord[], GitStatusFiles | null>([
+		return Promise.all<DiffNameStatusRecord[], DiffNumStatRecord[], DiffModeRecord[], GitStatusFiles | null>([
 			this.getDiffNameStatus(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
 			this.getDiffNumStat(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
+			this.getDiffMode(repo, fromHash, toHash === UNCOMMITTED ? '' : toHash),
 			toHash === UNCOMMITTED ? this.getStatus(repo) : Promise.resolve(null)
 		]).then((results) => {
 			return {
-				fileChanges: generateFileChanges(results[0], results[1], results[2]),
+				fileChanges: generateFileChanges(results[0], results[1], results[2], results[3]), // KARL_TRAIL PENDING
 				error: null
 			};
 		}).catch((errorMessage) => {
@@ -1467,7 +1470,7 @@ export class DataSource extends Disposable {
 	 * @returns An array of `--numstat` records.
 	 */
 	private getDiffMode(repo: string, fromHash: string, toHash: string, filter: string = 'AMDR') { // KARL_TRAIL
-		this.logger.logCmd("<<<<<<getDiffNumStat", ["--summary"]);
+		this.logger.logCmd('<<<<<<getDiffNumStat', ['--summary']);
 		return this.execDiff(repo, fromHash, toHash, '--summary', filter).then((output) => {
 			let records: DiffModeRecord[] = [], i = 0;
 			while (i < output.length && output[i] !== '') {
@@ -1884,7 +1887,7 @@ export class DataSource extends Disposable {
  * @param status The deleted and untracked files.
  * @returns An array of file changes.
  */
-function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatRecords: DiffNumStatRecord[], status: GitStatusFiles | null) {
+function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatRecords: DiffNumStatRecord[], numModeRecords: DiffModeRecord[], status: GitStatusFiles | null) {
 	let fileChanges: Writeable<GitFileChange>[] = [], fileLookup: { [file: string]: number } = {}, i = 0;
 
 	for (i = 0; i < nameStatusRecords.length; i++) {
@@ -1912,8 +1915,12 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 		if (typeof fileLookup[numStatRecords[i].filePath] === 'number') {
 			fileChanges[fileLookup[numStatRecords[i].filePath]].additions = numStatRecords[i].additions;
 			fileChanges[fileLookup[numStatRecords[i].filePath]].deletions = numStatRecords[i].deletions;
-			fileChanges[fileLookup[numStatRecords[i].filePath]].oldMode = 69;
-			fileChanges[fileLookup[numStatRecords[i].filePath]].newMode = -69;
+		}
+	}
+	for (i = 0; i < numModeRecords.length; i++) {
+		if (typeof fileLookup[numModeRecords[i].fileName] === 'number') {
+			fileChanges[fileLookup[numModeRecords[i].fileName]].oldMode = Number(numModeRecords[i].oldMode);
+			fileChanges[fileLookup[numModeRecords[i].fileName]].newMode = Number(numModeRecords[i].newMode);
 		}
 	}
 
