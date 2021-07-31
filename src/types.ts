@@ -71,6 +71,8 @@ export interface GitFileChange {
 	readonly type: GitFileStatus;
 	readonly additions: number | null;
 	readonly deletions: number | null;
+	readonly oldMode: number | null;
+	readonly newMode: number | null;
 }
 
 export const enum GitFileStatus {

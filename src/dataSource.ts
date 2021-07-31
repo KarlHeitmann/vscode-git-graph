@@ -350,9 +350,9 @@ export class DataSource extends Disposable {
 			this.getCommitDetailsBase(repo, commitHash),
 			this.getDiffNameStatus(repo, fromCommit, commitHash),
 			this.getDiffNumStat(repo, fromCommit, commitHash),
-			this.getDiffMode(repo, fromCommit, commitHash),
+			this.getDiffMode(repo, fromCommit, commitHash)
 		]).then((results) => {
-			results[0].fileChanges = generateFileChanges(results[1], results[2], null);
+			results[0].fileChanges = generateFileChanges(results[1], results[2], null); // KARL_TRAIL
 			return { commitDetails: results[0], error: null };
 		}).catch((errorMessage) => {
 			return { commitDetails: null, error: errorMessage };
@@ -1466,23 +1466,21 @@ export class DataSource extends Disposable {
 	 * @param filter The types of file changes to retrieve (defaults to `AMDR`).
 	 * @returns An array of `--numstat` records.
 	 */
-	private getDiffMode(repo: string, fromHash: string, toHash: string, filter: string = 'AMDR') {
+	private getDiffMode(repo: string, fromHash: string, toHash: string, filter: string = 'AMDR') { // KARL_TRAIL
 		this.logger.logCmd("<<<<<<getDiffNumStat", ["--summary"]);
 		return this.execDiff(repo, fromHash, toHash, '--summary', filter).then((output) => {
-			let records: DiffNumStatRecord[] = [], i = 0;
+			let records: DiffModeRecord[] = [], i = 0;
 			while (i < output.length && output[i] !== '') {
 				let fields = output[i].split(' => ');
 				// Aqui se toman algunas cosas del diff
-				if (fields.length !== 3) break;
-				if (fields[2] !== '') {
-					// Add, Modify, or Delete
-					records.push({ filePath: getPathFromStr(fields[2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
-					i += 1;
-				} else {
-					// Rename
-					records.push({ filePath: getPathFromStr(output[i + 2]), additions: parseInt(fields[0]), deletions: parseInt(fields[1]) });
-					i += 3;
-				}
+				if (fields.length !== 2) break;
+				let splited = fields[0].split(' ');
+				// let oldMode = splited[splited.length - 1], newMode = fields[1][0];
+				let oldMode = splited[splited.length - 1];
+				let [newMode, fileName] = fields[1].split(' ');
+				this.logger.log(`******************************** ${oldMode} | ${newMode} | ${fileName}`);
+				records.push({fileName, oldMode, newMode});
+				i++;
 			}
 			return records;
 		});
@@ -1891,7 +1889,7 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 
 	for (i = 0; i < nameStatusRecords.length; i++) {
 		fileLookup[nameStatusRecords[i].newFilePath] = fileChanges.length;
-		fileChanges.push({ oldFilePath: nameStatusRecords[i].oldFilePath, newFilePath: nameStatusRecords[i].newFilePath, type: nameStatusRecords[i].type, additions: null, deletions: null });
+		fileChanges.push({ oldFilePath: nameStatusRecords[i].oldFilePath, newFilePath: nameStatusRecords[i].newFilePath, type: nameStatusRecords[i].type, additions: null, deletions: null, oldMode: null, newMode: null });
 	}
 
 	if (status !== null) {
@@ -1901,12 +1899,12 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 			if (typeof fileLookup[filePath] === 'number') {
 				fileChanges[fileLookup[filePath]].type = GitFileStatus.Deleted;
 			} else {
-				fileChanges.push({ oldFilePath: filePath, newFilePath: filePath, type: GitFileStatus.Deleted, additions: null, deletions: null });
+				fileChanges.push({ oldFilePath: filePath, newFilePath: filePath, type: GitFileStatus.Deleted, additions: null, deletions: null, oldMode: null, newMode: null });
 			}
 		}
 		for (i = 0; i < status.untracked.length; i++) {
 			filePath = getPathFromStr(status.untracked[i]);
-			fileChanges.push({ oldFilePath: filePath, newFilePath: filePath, type: GitFileStatus.Untracked, additions: null, deletions: null });
+			fileChanges.push({ oldFilePath: filePath, newFilePath: filePath, type: GitFileStatus.Untracked, additions: null, deletions: null, oldMode: null, newMode: null });
 		}
 	}
 
@@ -1914,6 +1912,8 @@ function generateFileChanges(nameStatusRecords: DiffNameStatusRecord[], numStatR
 		if (typeof fileLookup[numStatRecords[i].filePath] === 'number') {
 			fileChanges[fileLookup[numStatRecords[i].filePath]].additions = numStatRecords[i].additions;
 			fileChanges[fileLookup[numStatRecords[i].filePath]].deletions = numStatRecords[i].deletions;
+			fileChanges[fileLookup[numStatRecords[i].filePath]].oldMode = 69;
+			fileChanges[fileLookup[numStatRecords[i].filePath]].newMode = -69;
 		}
 	}
 
@@ -1982,10 +1982,11 @@ interface DiffNameStatusRecord {
 	newFilePath: string;
 }
 
+// KARL_TRAIL
 interface DiffModeRecord {
-	filePath: string;
-	additions: number;
-	deletions: number;
+	fileName: string;
+	oldMode: string;
+	newMode: string;
 }
 
 interface DiffNumStatRecord {
